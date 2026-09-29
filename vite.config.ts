@@ -13,7 +13,8 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 
 const localBindingConfig = {
   main: "./worker/index.ts",
-  compatibility_flags: ["nodejs_compat"],
+  // Allow the site Worker to call the image Worker on workers.dev via fetch.
+  compatibility_flags: ["nodejs_compat", "global_fetch_strictly_public"],
   d1_databases: d1
     ? [
         {
