@@ -4,7 +4,7 @@ import type { AvatarProvider, AvatarRequest } from "./types";
 const DEFAULT_ENDPOINT = "https://queenb-flux-image-generator.queenb-images.workers.dev/generate";
 
 export class CloudflareAvatarProvider implements AvatarProvider {
-  constructor(private endpoint = DEFAULT_ENDPOINT) {}
+  constructor(private endpoint = DEFAULT_ENDPOINT, private secret?: string) {}
 
   async generateAvatar(request: AvatarRequest) {
     return this.generate(buildAvatarPrompt(request), request.image);
@@ -15,6 +15,7 @@ export class CloudflareAvatarProvider implements AvatarProvider {
   }
 
   private async generate(prompt: string, image?: AvatarRequest["image"]) {
+    if (!this.secret) throw new Error("IMAGE_WORKER_SECRET is not configured");
     const form = new FormData();
     form.append("prompt", prompt);
     if (image) {
@@ -24,6 +25,7 @@ export class CloudflareAvatarProvider implements AvatarProvider {
 
     const response = await fetch(this.endpoint, {
       method: "POST",
+      headers: { Authorization: `Bearer ${this.secret}` },
       body: form,
     });
 

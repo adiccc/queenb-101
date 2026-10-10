@@ -1,3 +1,4 @@
+import { authorizeGroupAction } from "../../../lib/auth/server";
 import { createAvatarProvider } from "../../../lib/ai";
 import { buildMascotPrompt } from "../../../lib/mascot/prompt";
 import { mascotQuestions, type MascotAnswers } from "../../../lib/mascot/questions";
@@ -5,6 +6,8 @@ import { mascotQuestions, type MascotAnswers } from "../../../lib/mascot/questio
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const denied = await authorizeGroupAction(request, "images:generate");
+  if (denied) return denied;
   try {
     const body = await request.json() as { answers?: MascotAnswers };
     const answers = body.answers || {};

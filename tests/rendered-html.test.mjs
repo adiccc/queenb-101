@@ -1,91 +1,43 @@
 import assert from "node:assert/strict";
-import { access, readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
-const developmentPreviewMeta =
-  /<meta(?=[^>]*\bname=["']codex-preview["'])(?=[^>]*\bcontent=["']development["'])[^>]*>/i;
-const templateRoot = new URL("../", import.meta.url);
-const previewRoot = new URL("../app/_sites-preview/", import.meta.url);
-
-async function render() {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
-
-  return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html" },
-    }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
-    },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
-  );
+async function loadSource(path, imports = {}) {
+  let source = ts.transpileModule(await readFile(new URL(path, import.meta.url), "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+  source = source.replace(/from "([^"]+)"/g, (_, id) => `from "${imports[id] ?? import.meta.resolve(id)}"`);
+  const url = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
+  return { url, exports: await import(url) };
 }
+const groups = await loadSource("../lib/groups.ts");
 
-test("server-renders the starter loading skeleton", async () => {
-  const response = await render();
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
-
-  const html = await response.text();
-  assert.match(html, developmentPreviewMeta);
-  assert.match(html, /<title>Your site is taking shape<\/title>/i);
-  assert.match(html, /Building your site/);
-  assert.match(html, /Your site is taking shape/);
-  assert.match(
-    html,
-    /Your first version will appear here automatically when it’s ready\./,
-  );
-  assert.doesNotMatch(html, /Codex/);
-  assert.match(html, /react-loading-skeleton/);
-  assert.match(html, /role="status"/);
+test("entry screen renders all seven regions in RTL without loading a group's data", async () => {
+  const page = await loadSource("../app/page.tsx", { "../lib/groups": groups.url });
+  const html = renderToStaticMarkup(createElement(page.exports.default));
+  assert.match(html, /באיזה אזור את\?/);
+  assert.match(html, /dir="rtl"/);
+  for (const region of Object.keys(groups.exports.groupsByRegion)) assert.ok(html.includes(region));
+  assert.doesNotMatch(html, /ייבוא גיבוי|ייצוא גיבוי/);
 });
 
-test("keeps the loading skeleton scoped and disposable", async () => {
-  const [preview, css, page, layout, packageJson, files] = await Promise.all([
-    readFile(new URL("SkeletonPreview.tsx", previewRoot), "utf8"),
-    readFile(new URL("preview.css", previewRoot), "utf8"),
-    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../package.json", import.meta.url), "utf8"),
-    readdir(previewRoot),
-  ]);
+test("group allowlist exactly matches all requested regions; arbitrary R2 keys are rejected", () => {
+  assert.deepEqual(groups.exports.groupsByRegion, { "צפון": [111,112,113,114,115], "דרום": [711,712,713,715,716,721], "שרון": [311,312], "חיפה": [211,212,213,214,215], "ירושלים": [611,612,613,614,616], "מרכז": [511,512,513,514,515,531], "תל אביב והסביבה": [411,412,413,414,415] });
+  assert.equal(groups.exports.groupDataKey("711"), "groups/711/data.json");
+  for (const id of ["101", "999", "0711", "../group.json", "711/../513", "", null]) assert.equal(groups.exports.isGroupId(id), false);
+  assert.throws(() => groups.exports.groupDataKey("../group.json"));
+});
 
-  assert.deepEqual(files.sort(), ["SkeletonPreview.tsx", "preview.css"]);
-  assert.match(preview, /from "react-loading-skeleton"/);
-  assert.match(preview, /baseColor="#eceae7"/);
-  assert.match(preview, /highlightColor="#f9f8f6"/);
-  assert.match(preview, /duration=\{2\.8\}/);
-  assert.match(preview, /sites-skeleton-search-placeholder/);
-  assert.match(packageJson, /"react-loading-skeleton": "3\.5\.0"/);
-
-  const shellIndex = preview.indexOf('className="sites-skeleton-shell"');
-  const statusIndex = preview.indexOf('className="sites-skeleton-status"');
-  assert.ok(shellIndex >= 0 && statusIndex > shellIndex);
-  assert.match(css, /position:\s*fixed/);
-  assert.match(css, /inset:\s*0/);
-  assert.match(css, /opacity:\s*0\.52/);
-  assert.match(css, /prefers-reduced-motion:\s*reduce/);
-  assert.doesNotMatch(css, /#020617|canvas|pets|progress/i);
-  assert.doesNotMatch(
-    preview,
-    /loading-spinner|status-mark|status-progress|canvas|cookie|random/i,
-  );
-
-  assert.match(page, /export const metadata:\s*Metadata/);
-  assert.match(page, /"codex-preview": "development"/);
-  assert.match(page, /<SkeletonPreview \/>/);
-  assert.match(layout, /title:\s*"Starter Project"/);
-  assert.doesNotMatch(layout, /codex-preview|_sites-preview|themeColor|\bViewport\b/);
-  assert.doesNotMatch(css, /(^|\s)(html|body)\s*\{/m);
-
-  await assert.rejects(
-    access(new URL("public/_sites-preview", templateRoot)),
-  );
+test("media and mascot answers cannot leak between mounted groups, even with identical image IDs", async () => {
+  const { exports: { GroupMedia } } = await loadSource("../lib/storage/group-media.tsx");
+  const a = new GroupMedia("711"), b = new GroupMedia("513");
+  await a.putImage("queenb-group-mascot", new Blob(["A"])); a.answers = { creature: "cat" };
+  assert.equal(await b.getImage("queenb-group-mascot"), undefined);
+  assert.equal(b.answers, undefined);
+  await b.putImage("queenb-group-mascot", new Blob(["B"])); b.answers = { creature: "bee" };
+  a.clear();
+  assert.equal(await (await b.getImage("queenb-group-mascot")).text(), "B");
+  assert.deepEqual(b.answers, { creature: "bee" });
+  assert.equal(await a.getImage("queenb-group-mascot"), undefined);
 });

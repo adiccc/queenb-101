@@ -2,7 +2,10 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 
-interface Env {
+import { handleGroupApi, type GroupEnv } from "./group-api";
+import { isGroupId } from "../lib/groups";
+
+interface Env extends GroupEnv {
   ASSETS: Fetcher;
   DB: D1Database;
   IMAGES: {
@@ -28,6 +31,12 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname.startsWith("/group/")) {
+      const match = url.pathname.match(/^\/group\/([^/]+)\/?$/);
+      if (!match || !isGroupId(match[1])) return Response.redirect(new URL("/", url), 302);
+    }
+    if (url.pathname.startsWith("/api/")) return handleGroupApi(request, env, () => handler.fetch(request, env, ctx));
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];

@@ -1,5 +1,6 @@
 export type AvatarRequest = {
-  image: { data: string; mimeType: string };
+  image?: { data: string; mimeType: string };
+  appearance?: string;
   traits: { name: string; passion: string; power: string; item: string; vibe: string; customPrompt?: string };
 };
 

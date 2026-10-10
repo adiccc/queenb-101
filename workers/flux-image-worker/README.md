@@ -1,49 +1,16 @@
 # QueenB FLUX image Worker
 
-Minimal Cloudflare Worker exposing `POST /generate` with the Workers AI model `@cf/black-forest-labs/flux-2-klein-4b`.
+`POST /generate` invokes `@cf/black-forest-labs/flux-2-klein-4b` for the authenticated QueenB site server. Direct unauthenticated calls are rejected **before** the AI model is invoked.
 
-## Free Tier guardrail
+## Secrets and deployment
 
-Deploy only on a Cloudflare Workers Free account. Do not enable Workers Paid or AI Gateway unified billing. The free allocation is 10,000 Workers AI Neurons per day; when exhausted, requests on the Free plan fail instead of creating paid overage.
-
-## Deploy
-
-From the repository root:
+Set `IMAGE_WORKER_SECRET` to the same independently generated random value on both this Worker and the site Worker. It must never be included in frontend code. Local testing can use an ignored `.dev.vars` in this directory.
 
 ```bash
-npx wrangler login
+npx wrangler secret put IMAGE_WORKER_SECRET --config workers/flux-image-worker/wrangler.jsonc
 npx wrangler deploy --config workers/flux-image-worker/wrangler.jsonc
 ```
 
-## Test
+The site backend sends `Authorization: Bearer <secret>`. The browser sends requests only to the site's `/api/avatar?groupId=…` and `/api/mascot?groupId=…`, authenticated by an HttpOnly session cookie. Deploy both ends together: the old public Worker remains unprotected until this updated Worker is deployed. Missing configuration fails closed with HTTP 503; a missing or incorrect bearer secret returns 401.
 
-```bash
-curl -X POST "https://queenb-flux-image-generator.queenb-images.workers.dev/generate" \
-  -F "prompt=Turn the person in input image 0 into a friendly illustrated QueenB avatar" \
-  -F "input_image_0=@face.jpg" \
-  --output flux-test.jpg
-```
-
-## React / TypeScript
-
-```ts
-const formData = new FormData();
-formData.append("prompt", "Turn the person into a friendly illustrated QueenB avatar");
-formData.append("input_image_0", selectedImage);
-
-const response = await fetch(
-  "https://queenb-flux-image-generator.queenb-images.workers.dev/generate",
-  {
-    method: "POST",
-    body: formData,
-  },
-);
-
-if (!response.ok) {
-  const error = await response.json();
-  throw new Error(error.details ?? error.error);
-}
-
-const blob = await response.blob();
-const imageUrl = URL.createObjectURL(blob);
-```
+Use the existing account plan and limits; this change does not alter billing or enable a paid plan. The local test suite stubs the AI model and does not incur AI requests.

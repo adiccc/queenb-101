@@ -3,7 +3,7 @@ const MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 function jsonResponse(body, status) {
@@ -31,6 +31,16 @@ export default {
     if (request.method !== "POST") {
       return jsonResponse({ error: "Use POST /generate" }, 405);
     }
+
+    // Only the authenticated site server may invoke the paid image model.
+    if (!env.IMAGE_WORKER_SECRET) return jsonResponse({ error: "Image service is not configured" }, 503);
+    const supplied = request.headers.get("Authorization") || "";
+    const encoder = new TextEncoder();
+    const [a, b] = await Promise.all([supplied, `Bearer ${env.IMAGE_WORKER_SECRET}`].map(value => crypto.subtle.digest("SHA-256", encoder.encode(value))));
+    const left = new Uint8Array(a), right = new Uint8Array(b);
+    let difference = 0;
+    for (let i = 0; i < left.length; i++) difference |= left[i] ^ right[i];
+    if (difference !== 0) return jsonResponse({ error: "Unauthorized" }, 401);
 
     let form;
     try {

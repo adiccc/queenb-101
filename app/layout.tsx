@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "QueenB 101 — האתר של הקבוצה שלנו",
+  title: "QueenB — האתר של הקבוצה שלנו",
   description: "המסע, המטרות, החידון והדמויות של קבוצת QueenB שלנו.",
   icons: { icon: "/favicon.svg" },
 };

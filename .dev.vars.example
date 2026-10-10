@@ -1,0 +1,7 @@
+# Copy to .dev.vars and set real values locally. Never commit .dev.vars.
+QUEENB_ACCESS_CODE=""
+# Use a random secret of at least 32 characters, distinct from the access code.
+QUEENB_SESSION_SECRET=""
+# The same random server-to-server secret must be set on the image Worker.
+IMAGE_WORKER_SECRET=""
+CLOUDFLARE_IMAGE_ENDPOINT="https://queenb-flux-image-generator.queenb-images.workers.dev/generate"
