@@ -15,13 +15,15 @@ export async function handleSiteData(request: Request, bucket: DataBucket | unde
     if (request.method === "GET") {
       const object = await bucket.get(key);
       if (!object) return json({ empty: true });
-      return new Response(object.body, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ETag: object.httpEtag } });
+      return new Response(object.body, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ETag: object.httpEtag, "X-QueenB-Version": object.httpEtag } });
     }
     if (request.method !== "PUT") return json({ error: "Method not allowed" }, 405);
     const origin = request.headers.get("Origin");
     if ((origin && origin !== new URL(request.url).origin) || request.headers.get("Sec-Fetch-Site") === "cross-site") return json({ error: "Forbidden" }, 403);
     if (!request.headers.get("Content-Type")?.startsWith("application/json")) return json({ error: "Expected JSON" }, 415);
-    const match = request.headers.get("If-Match");
+    // Cloudflare compression may weaken the HTTP ETag without changing the R2 object.
+    // Accept old clients carrying that transport validator; R2 still compares the exact object tag.
+    const match = request.headers.get("If-Match")?.replace(/^W\/("[^"\r\n]+")$/, "$1");
     const create = request.headers.get("If-None-Match") === "*";
     if ((!match || match === "*") && !create) return json({ error: "Missing version" }, 428);
     // Bound bytes while reading, including requests without Content-Length.
@@ -46,7 +48,7 @@ export async function handleSiteData(request: Request, bucket: DataBucket | unde
     const onlyIf = new Headers(create ? { "If-None-Match": "*" } : { "If-Match": match! });
     const saved = await bucket.put(key, text, { onlyIf, httpMetadata: { contentType: "application/json" } });
     if (!saved) return json({ error: "המידע של הקבוצה השתנה במחשב אחר. השינויים שלך לא נשמרו. טעינה מחדש תציג את המידע העדכני ותבטל את השינויים שלא נשמרו." }, 409);
-    return new Response(null, { status: 204, headers: { ETag: saved.httpEtag, "Cache-Control": "no-store" } });
+    return new Response(null, { status: 204, headers: { ETag: saved.httpEtag, "X-QueenB-Version": saved.httpEtag, "Cache-Control": "no-store" } });
   } catch {
     return json({ error: "לא הצלחנו להתחבר לאחסון הענן. נסי שוב." }, 503);
   }

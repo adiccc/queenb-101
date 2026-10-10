@@ -43,7 +43,7 @@ export function useCloudData<T>(options: {
           const result = await response.json() as { error?: string };
           throw new Error(result.error || "השמירה בענן נכשלה.");
         }
-        const etag = response.headers.get("ETag");
+        const etag = (response.headers.get("X-QueenB-Version") || response.headers.get("ETag"));
         if (!etag) throw new Error("לא התקבל אישור גרסה מהענן. רענני לפני המשך עריכה.");
         s.etag = etag;
         s.saved = revision;
@@ -70,7 +70,7 @@ export function useCloudData<T>(options: {
           ? await initialOptions.current.empty()
           : isSnapshot(value) ? await initialOptions.current.restore(value) : (() => { throw new Error("קובץ המידע בענן אינו תקין."); })();
         if (!active) return;
-        s.etag = response.headers.get("ETag") || "";
+        s.etag = (response.headers.get("X-QueenB-Version") || response.headers.get("ETag")) || "";
         if (!empty && !s.etag) throw new Error("לא התקבלה גרסת המידע מהענן.");
         s.data = loaded;
         s.loaded = true;

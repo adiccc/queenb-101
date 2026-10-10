@@ -125,3 +125,28 @@ test("image Worker requires server secret before calling the AI model", async ()
   assert.equal((await imageWorker.fetch(request(env.IMAGE_WORKER_SECRET), env)).status, 200);
   assert.equal(calls, 1);
 });
+
+
+test("compressed response validators allow refreshed instructors to save but reject stale edits", async () => {
+  const mf = runtime();
+  try {
+    const firstInstructor = await cookie(mf);
+    const secondInstructor = await cookie(mf);
+    const created = await put(mf, "411", fixture(), firstInstructor);
+    assert.equal(created.status, 204);
+    assert.equal(created.headers.get("X-QueenB-Version"), created.headers.get("ETag"));
+    const refreshed = await get(mf, "/api/groups/411/data");
+    const version = refreshed.headers.get("X-QueenB-Version");
+    assert.equal(version, refreshed.headers.get("ETag"));
+    // Simulate Cloudflare gzip changing only the standard response ETag to W/"...".
+    const changed = fixture(); changed.data.settings.journeySubtitle = "Second instructor";
+    const saved = await put(mf, "411", changed, secondInstructor, { "If-Match": `W/${version}` });
+    assert.equal(saved.status, 204);
+    assert.notEqual(saved.headers.get("X-QueenB-Version"), version);
+    const stale = fixture(); stale.data.settings.journeySubtitle = "Stale edit";
+    assert.equal((await put(mf, "411", stale, firstInstructor, { "If-Match": `W/${version}` })).status, 409);
+    assert.deepEqual(await (await get(mf, "/api/groups/411/data")).json(), changed);
+    const latest = await get(mf, "/api/groups/411/data");
+    assert.equal((await put(mf, "411", stale, firstInstructor, { "If-Match": latest.headers.get("X-QueenB-Version") })).status, 204);
+  } finally { await mf.dispose(); }
+});
