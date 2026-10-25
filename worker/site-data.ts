@@ -1,9 +1,10 @@
 import { groupDataKey, isGroupId } from "../lib/groups";
-import { isSnapshot, MAX_SNAPSHOT_BYTES } from "../lib/storage/snapshot";
+import { isImageReference, isSnapshot, MAX_SNAPSHOT_BYTES } from "../lib/storage/snapshot";
 
 export interface DataBucket {
   get(key: string): Promise<{ body: ReadableStream; httpEtag: string } | null>;
-  put(key: string, value: string, options: { onlyIf: Headers; httpMetadata: { contentType: string } }): Promise<{ httpEtag: string } | null>;
+  head(key: string): Promise<unknown | null>;
+  put(key: string, value: string | Uint8Array, options: { onlyIf: Headers; httpMetadata: { contentType: string } }): Promise<{ httpEtag: string } | null>;
 }
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
 
@@ -45,6 +46,19 @@ export async function handleSiteData(request: Request, bucket: DataBucket | unde
     let snapshot: unknown;
     try { snapshot = JSON.parse(text); } catch { return json({ error: "Invalid JSON" }, 400); }
     if (!isSnapshot(snapshot)) return json({ error: "Invalid group data" }, 400);
+    for (const value of Object.values(snapshot.images)) {
+      if (value.startsWith("data:")) continue;
+      if (!isImageReference(value, groupId)) return json({ error: "Invalid image reference" }, 400);
+      const name = value.split("/").pop();
+      if (!await bucket.head(`groups/${groupId}/images/${name}`)) return json({ error: "חסרה תמונה בענן. נסי לשמור שוב." }, 400);
+    }
+    if (snapshot.version === 2) {
+      const previous = await bucket.get(key);
+      if (previous) {
+        const previousText = await new Response(previous.body).text();
+        if (JSON.parse(previousText).version === 1) await bucket.put(`groups/${groupId}/legacy-v1-backup.json`, previousText, { onlyIf: new Headers({ "If-None-Match": "*" }), httpMetadata: { contentType: "application/json" } });
+      }
+    }
     const onlyIf = new Headers(create ? { "If-None-Match": "*" } : { "If-Match": match! });
     const saved = await bucket.put(key, text, { onlyIf, httpMetadata: { contentType: "application/json" } });
     if (!saved) return json({ error: "המידע של הקבוצה השתנה במחשב אחר. השינויים שלך לא נשמרו. טעינה מחדש תציג את המידע העדכני ותבטל את השינויים שלא נשמרו." }, 409);

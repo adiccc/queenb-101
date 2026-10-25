@@ -1,6 +1,6 @@
 export const MAX_SNAPSHOT_BYTES = 20 * 1024 * 1024;
 export type Snapshot = {
-  version: 1;
+  version: 1 | 2;
   data: { milestones: unknown[]; goals: unknown[]; questions: unknown[]; characters: { avatarId?: string }[]; settings: Record<string, string> };
   images: Record<string, string>;
   mascotAnswers?: Record<string, string>;
@@ -8,7 +8,7 @@ export type Snapshot = {
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const strings = (value: unknown) => record(value) && Object.values(value).every(item => typeof item === "string");
 export function isSnapshot(value: unknown): value is Snapshot {
-  if (!record(value) || value.version !== 1 || !record(value.data) || !record(value.images)) return false;
+  if (!record(value) || (value.version !== 1 && value.version !== 2) || !record(value.data) || !record(value.images)) return false;
   const d = value.data;
   for (const [key, fields] of Object.entries({ milestones: ["id", "title", "text", "emoji"], goals: ["id", "title", "text", "status"], questions: ["id", "question", "correct"], characters: ["id", "name", "fallback", "passion", "power", "item", "vibe"] })) {
     if (!Array.isArray(d[key]) || !d[key].every(item => record(item) && fields.every(field => typeof item[field] === "string"))) return false;
@@ -18,5 +18,10 @@ export function isSnapshot(value: unknown): value is Snapshot {
   if (!(d.characters as { avatarId?: string }[]).every(c => !c.avatarId || Object.hasOwn(value.images as object, c.avatarId))) return false;
   if (!strings(d.settings) || typeof (d.settings as Record<string, unknown>).journeySubtitle !== "string") return false;
   if (value.mascotAnswers !== undefined && !strings(value.mascotAnswers)) return false;
-  return Object.values(value.images).every(image => typeof image === "string" && /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(image));
+  return Object.values(value.images).every(image => typeof image === "string" && (isImageReference(image) || /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(image)));
+}
+
+export function isImageReference(value: string, groupId?: string): boolean {
+  const match = value.match(/^\/api\/groups\/([1-9][0-9]*)\/images\/([a-f0-9]{64}\.(?:png|jpeg|webp|gif))$/);
+  return !!match && (!groupId || match[1] === groupId);
 }

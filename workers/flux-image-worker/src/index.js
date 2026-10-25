@@ -68,8 +68,8 @@ export default {
     try {
       const modelForm = new FormData();
       modelForm.append("prompt", prompt);
-      modelForm.append("width", "1024");
-      modelForm.append("height", "1024");
+      modelForm.append("width", "512");
+      modelForm.append("height", "512");
       if (inputImage instanceof File) modelForm.append("input_image_0", inputImage);
 
       const formResponse = new Response(modelForm);

@@ -5,7 +5,7 @@ import test from "node:test";
 import ts from "typescript";
 import { Miniflare } from "miniflare";
 
-const files = ["../lib/groups.ts", "../lib/auth/permissions.ts", "../lib/storage/snapshot.ts", "../worker/auth.ts", "../worker/site-data.ts", "../worker/group-api.ts"];
+const files = ["../lib/groups.ts", "../lib/auth/permissions.ts", "../lib/storage/snapshot.ts", "../worker/auth.ts", "../worker/site-data.ts", "../worker/group-images.ts", "../worker/group-api.ts"];
 const code = (await Promise.all(files.map(async path => ts.transpileModule(await readFile(new URL(path, import.meta.url), "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText.replace(/^import .*;\n/gm, "").replace(/^export /gm, "")))).join("\n");
 // Deliberately fake test credentials, used only in isolated Miniflare instances.
 const bindings = { QUEENB_ACCESS_CODE: "queenb-test-access", QUEENB_SESSION_SECRET: "test-only-session-secret-at-least-32-characters" };
@@ -149,4 +149,64 @@ test("compressed response validators allow refreshed instructors to save but rej
     const latest = await get(mf, "/api/groups/411/data");
     assert.equal((await put(mf, "411", stale, firstInstructor, { "If-Match": latest.headers.get("X-QueenB-Version") })).status, 204);
   } finally { await mf.dispose(); }
+});
+
+const mergeCode = ts.transpileModule(await readFile(new URL("../lib/storage/merge.ts", import.meta.url), "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+const { mergeSnapshots } = await import(`data:text/javascript;base64,${Buffer.from(mergeCode).toString("base64")}`);
+const upload = (mf, group, auth, text = "image bytes") => mf.dispatchFetch(`https://site.example/api/groups/${group}/images`, { method: "POST", headers: { Cookie: auth, "Content-Type": "image/png" }, body: text });
+
+test("image objects are immutable, isolated, authenticated and reusable; migration backs up v1", async () => {
+  const mf = runtime();
+  try {
+    const auth = await cookie(mf);
+    assert.equal((await upload(mf, "711", "")).status, 401);
+    assert.equal((await upload(mf, "999", auth)).status, 404);
+    assert.equal((await upload(mf, "711", auth, "x".repeat(5 * 1024 * 1024 + 1))).status, 413);
+    const { url } = await (await upload(mf, "711", auth)).json();
+    assert.deepEqual(await (await upload(mf, "711", auth)).json(), { url });
+    const image = await get(mf, url); assert.equal(await image.text(), "image bytes");
+    assert.equal(image.headers.get("Content-Type"), "image/png");
+    assert.equal((await get(mf, url.replace("/711/", "/513/"))).status, 404);
+    const legacy = fixture(); const original = await put(mf, "711", legacy, auth);
+    const migrated = fixture(); migrated.version = 2; migrated.images = { "avatar-1": url };
+    assert.equal((await put(mf, "711", migrated, auth, { "If-Match": original.headers.get("ETag") })).status, 204);
+    assert.deepEqual(await (await get(mf, "/api/groups/711/data")).json(), migrated);
+    const bucket = await mf.getR2Bucket("QUEENB_DATA");
+    assert.deepEqual(await (await bucket.get("groups/711/legacy-v1-backup.json")).json(), legacy);
+    assert.equal((await put(mf, "513", migrated, auth)).status, 400, "cross-group references rejected");
+    const missing = structuredClone(migrated); missing.images["avatar-1"] = `/api/groups/513/images/${"0".repeat(64)}.png`;
+    assert.equal((await put(mf, "513", missing, auth)).status, 400);
+  } finally { await mf.dispose(); }
+});
+
+test("two instructors adding different avatars survive a stale version and retry without duplicates", async () => {
+  const mf = runtime();
+  try {
+    const auth = await cookie(mf), base = fixture(); base.version = 2; base.data.characters = []; base.images = {};
+    const initial = await put(mf, "711", base, auth);
+    const additions = await Promise.all(["first", "second"].map(async name => {
+      const { url } = await (await upload(mf, "711", auth, name)).json();
+      const snap = structuredClone(base); snap.data.characters = [{ ...fixture().data.characters[0], id: name, avatarId: name, name }]; snap.images[name] = url; return snap;
+    }));
+    const responses = await Promise.all(additions.map(snapshot => put(mf, "711", snapshot, auth, { "If-Match": initial.headers.get("ETag") })));
+    assert.deepEqual(responses.map(r=>r.status).sort(), [204,409]);
+    const failed = responses.findIndex(r=>r.status===409);
+    const remoteResponse = await get(mf, "/api/groups/711/data"), remote = await remoteResponse.json();
+    const merged = mergeSnapshots(base, additions[failed], remote);
+    assert.equal((await put(mf, "711", merged, auth, { "If-Match": remoteResponse.headers.get("ETag") })).status, 204);
+    const saved = await (await get(mf, "/api/groups/711/data")).json();
+    assert.deepEqual(saved.data.characters.map(c=>c.id).sort(), ["first","second"]);
+    assert.deepEqual(mergeSnapshots(base, additions[failed], saved), saved, "retry after lost acknowledgement is idempotent");
+  } finally { await mf.dispose(); }
+});
+
+test("three-way merge retains independent edits and deletions, refuses conflicting edits", () => {
+  const base=fixture(), a=fixture(), b=fixture();
+  a.data.settings.journeySubtitle="new title"; b.data.characters[0].name="new name";
+  const merged=mergeSnapshots(base,a,b); assert.equal(merged.data.settings.journeySubtitle,"new title"); assert.equal(merged.data.characters[0].name,"new name");
+  const deleted=fixture(); deleted.data.characters=[]; delete deleted.images["avatar-1"];
+  assert.equal(mergeSnapshots(base,deleted,a).data.characters.length,0);
+  assert.throws(()=>mergeSnapshots(base,deleted,b), /אותו פריט/);
+  const other=fixture(); other.data.characters[0].name="different name";
+  assert.throws(()=>mergeSnapshots(base,b,other), /אותו פריט/);
 });

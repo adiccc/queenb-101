@@ -30,7 +30,8 @@ test("group allowlist exactly matches all requested regions; arbitrary R2 keys a
 });
 
 test("media and mascot answers cannot leak between mounted groups, even with identical image IDs", async () => {
-  const { exports: { GroupMedia } } = await loadSource("../lib/storage/group-media.tsx");
+  const snapshot = await loadSource("../lib/storage/snapshot.ts");
+  const { exports: { GroupMedia } } = await loadSource("../lib/storage/group-media.tsx", { "./snapshot": snapshot.url });
   const a = new GroupMedia("711"), b = new GroupMedia("513");
   await a.putImage("queenb-group-mascot", new Blob(["A"])); a.answers = { creature: "cat" };
   assert.equal(await b.getImage("queenb-group-mascot"), undefined);
