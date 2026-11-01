@@ -14,3 +14,18 @@ npx wrangler deploy --config workers/flux-image-worker/wrangler.jsonc
 The site backend sends `Authorization: Bearer <secret>`. The browser sends requests only to the site's `/api/avatar?groupId=…` and `/api/mascot?groupId=…`, authenticated by an HttpOnly session cookie. Deploy both ends together: the old public Worker remains unprotected until this updated Worker is deployed. Missing configuration fails closed with HTTP 503; a missing or incorrect bearer secret returns 401.
 
 Use the existing account plan and limits; this change does not alter billing or enable a paid plan. The local test suite stubs the AI model and does not incur AI requests.
+
+## שירות התמונות בחשבון הנוסף
+
+- יעד הפריסה: `wrangler.secondary.jsonc`, חשבון `77e3eb9ee2e82e9c2981cffc201a19f1`.
+- כתובת השירות: `https://queenb-flux-image-generator.queenb-avatars.workers.dev/generate`.
+- הפלט הוא 512×512. האתר ו־R2 נשארים בחשבון המקורי; רק יצירת התמונות עוברת לשירות הזה.
+- החיבור ל־CLI של החשבון הנוסף נשמר בנפרד, בתיקייה המוחרגת מ־Git:
+
+```bash
+XDG_CONFIG_HOME="$PWD/.wrangler/secondary-account" \
+WRANGLER_LOG_PATH=.wrangler/wrangler.log \
+npx wrangler deploy --config workers/flux-image-worker/wrangler.secondary.jsonc
+```
+
+יש להריץ משורש הפרויקט. פריסת האתר אינה פורסת את Worker התמונות. שני השירותים חייבים להשתמש באותו `IMAGE_WORKER_SECRET`; הכתובת מוגדרת ב־`CLOUDFLARE_IMAGE_ENDPOINT` של האתר. אין להחליף כתובת בחזרה לשירות הישן בלי לוודא גם התאמה של המפתח.

@@ -63,6 +63,8 @@ QUEENB_LOCAL_STORAGE=1 npm run dev
 
 ## לפני deploy לפרודקשן
 
+יצירת אווטאר וקמע כוללת ניסיון גיבוי יחיד בין שירותי `queenb-images.workers.dev` ו־`queenb-avatars.workers.dev`: הכתובת שב־`CLOUDFLARE_IMAGE_ENDPOINT` נבדקת ראשונה, ורק הודעת API מפורשת `used up your daily free allocation` מפעילה פנייה לשירות השני. שגיאות אימות, רשת, עומס וקצב בקשות אינן מפעילות מעבר. שני שירותי התמונות חייבים להשתמש באותו `IMAGE_WORKER_SECRET` של האתר. כתובת מותאמת שאינה אחת משתי הכתובות הקיימות אינה מקבלת גיבוי אוטומטי. אם גם השירות השני נכשל, הבקשה מסתיימת בשגיאה ללא ניסיונות נוספים. השינוי דורש פריסה מחדש של האתר; בדיקות המנגנון: `node --test tests/image-fallback.test.mjs`.
+
 1. הגדירי את שלושת ה־secrets ב־Worker האתר, ואת `IMAGE_WORKER_SECRET` הזהה ב־Worker התמונות. אין להשתמש בערכי בדיקה. לפריסה מה־Dashboard: Settings → Variables and Secrets → Secret. קובץ `.dev.vars` הוא מקומי בלבד ואינו מגדיר secrets בפרודקשן.
 2. ודאי ש־`QUEENB_DATA` מחובר ל־`queenb-site-data` וש־`AUTH_RATE_LIMITER` מוגדר כמפורט לעיל. אין צורך ב־bucket חדש, public access, CORS, D1 או שכפול האתר. קובץ `.openai/hosting.json` אינו מחבר bucket חיצוני זה באופן אוטומטי דרך שירות Sites.
 3. בני ובדקי את גרסת האתר. פרסי גם את Worker התמונות המעודכן וגם את האתר, בחלון תחזוקה קצר אם נחוץ: עד ששניהם משתמשים באותו secret יצירת התמונות עלולה להיכשל. אין בדיקת API באתר שיכולה להגן על הגרסה הישנה של Worker התמונות כל עוד היא נשארת פרוסה ופתוחה.

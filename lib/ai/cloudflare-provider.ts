@@ -2,6 +2,26 @@ import { buildAvatarPrompt } from "./prompt";
 import type { AvatarProvider, AvatarRequest } from "./types";
 
 const DEFAULT_ENDPOINT = "https://queenb-flux-image-generator.queenb-images.workers.dev/generate";
+const SECONDARY_ENDPOINT = "https://queenb-flux-image-generator.queenb-avatars.workers.dev/generate";
+
+function alternateEndpoint(endpoint: string) {
+  if (endpoint === DEFAULT_ENDPOINT) return SECONDARY_ENDPOINT;
+  if (endpoint === SECONDARY_ENDPOINT) return DEFAULT_ENDPOINT;
+  return undefined;
+}
+
+// The image Worker wraps AI errors in a 500 response with a details field.
+// Match the quota message, not HTTP 429 or generic AI error code 4006:
+// those can also mean rate limiting or temporarily unavailable capacity.
+function isFreeAllocationExhausted(detail: string) {
+  try {
+    const body = JSON.parse(detail);
+    return typeof body.details === "string" &&
+      /\bused up your daily free allocation\b/i.test(body.details);
+  } catch {
+    return false;
+  }
+}
 
 export class CloudflareAvatarProvider implements AvatarProvider {
   constructor(private endpoint = DEFAULT_ENDPOINT, private secret?: string) {}
@@ -23,11 +43,22 @@ export class CloudflareAvatarProvider implements AvatarProvider {
       form.append("input_image_0", new Blob([bytes], { type: image.mimeType }), "reference-image");
     }
 
-    const response = await fetch(this.endpoint, {
+    const send = (endpoint: string) => fetch(endpoint, {
       method: "POST",
       headers: { Authorization: `Bearer ${this.secret}` },
       body: form,
     });
+
+    let response = await send(this.endpoint);
+    if (!response.ok) {
+      const detail = await response.text();
+      const fallback = alternateEndpoint(this.endpoint);
+      if (!fallback || !isFreeAllocationExhausted(detail)) {
+        throw new Error(`Cloudflare Workers AI request failed (${response.status}): ${detail.slice(0, 300)}`);
+      }
+      console.warn("Image AI daily allocation exhausted; trying the alternate image Worker once");
+      response = await send(fallback);
+    }
 
     if (!response.ok) {
       const detail = await response.text();

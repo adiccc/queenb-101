@@ -95,7 +95,7 @@ export default {
         },
       });
     } catch (error) {
-      console.error("Image generation failed", error);
+      console.error("Image generation failed:", error instanceof Error ? error.message : String(error));
       return jsonResponse(
         {
           error: "Image generation failed",

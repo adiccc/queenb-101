@@ -1,0 +1,10 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "queenb-flux-image-generator",
+  "account_id": "77e3eb9ee2e82e9c2981cffc201a19f1",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-21",
+  "workers_dev": true,
+  "ai": { "binding": "AI" },
+  "observability": { "enabled": true }
+}
